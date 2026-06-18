@@ -5,36 +5,41 @@ namespace ContextBuilder.Core;
 
 public class FileScanner
 {
-    public List<ProjectFile> Scan(ProjectConfig config)
+    public List<ProjectFile> Scan(
+    IEnumerable<string> roots,
+    IEnumerable<string> extensions)
     {
         var result = new List<ProjectFile>();
 
-        var files = Directory.GetFiles(
-            config.RootPath,
-            "*.*",
-            SearchOption.AllDirectories);
+        foreach (var root in roots)
+        {
+            ScanFolder(root, extensions, result);
+        }
 
-        foreach (var file in files)
+        return result;
+    }
+    private void ScanFolder(
+    string root,
+    IEnumerable<string> extensions,
+    List<ProjectFile> result)
+    {
+        foreach (var file in Directory.EnumerateFiles(
+                     root,
+                     "*",
+                     SearchOption.AllDirectories))
         {
             var ext = Path.GetExtension(file);
 
-            if (!config.Extensions.Contains(ext))
+            if (!extensions.Contains(ext))
                 continue;
-
-            if (config.ExcludedFolders.Any(f => file.Contains($"\\{f}\\")))
-                continue;
-
-            var content = File.ReadAllText(file);
 
             result.Add(new ProjectFile
             {
                 FullPath = file,
-                RelativePath = Path.GetRelativePath(config.RootPath, file),
-                Content = content,
+                RelativePath = Path.GetRelativePath(root, file),
+                Content = File.ReadAllText(file),
                 Extension = ext
             });
         }
-
-        return result;
     }
 }
