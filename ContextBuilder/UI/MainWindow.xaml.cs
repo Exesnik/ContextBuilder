@@ -323,6 +323,9 @@ public partial class MainWindow : Window
             IsChecked = true
         };
 
+        check.Checked += TreeCheckBoxChanged;
+        check.Unchecked += TreeCheckBoxChanged;
+
         var item = new TreeViewItem
         {
             Header = check
@@ -334,8 +337,33 @@ public partial class MainWindow : Window
         }
 
         return item;
-    }
 
+    }
+    private void TreeCheckBoxChanged(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox checkBox)
+            return;
+
+        if (checkBox.Parent is not TreeViewItem parentItem)
+            return;
+
+        SetChildrenChecked(parentItem, checkBox.IsChecked == true);
+    }
+    private void SetChildrenChecked(TreeViewItem parent, bool isChecked)
+    {
+        foreach (var child in parent.Items)
+        {
+            if (child is not TreeViewItem item)
+                continue;
+
+            if (item.Header is CheckBox cb)
+            {
+                cb.IsChecked = isChecked;
+            }
+
+            SetChildrenChecked(item, isChecked);
+        }
+    }
     // -------------------------
     // UTILS
     // -------------------------
