@@ -9,7 +9,7 @@ public class AppSettings
     public bool Json { get; set; } = true;
     public bool Md { get; set; } = false;
     public bool Txt { get; set; } = false;
-
+    public bool OnlyCheckedTree { get; set; }
     public bool IncludeTree { get; set; } = true;
 
     public string Format { get; set; } = "txt";

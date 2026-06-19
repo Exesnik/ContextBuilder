@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Collections.ObjectModel;
 
 namespace ContextBuilder;
 
@@ -16,11 +17,16 @@ public partial class MainWindow : Window
     private readonly FolderPicker _folderPicker = new();
     private readonly ProjectTreeBuilder _treeBuilder = new();
 
-    private AppSettings _settings;
+    private readonly SelectedFilesProvider _filesProvider = new();
+
+    private AppSettings _settings; 
+    private readonly ObservableCollection<TreeNodeModel> _rootNodes = new();
+    private readonly ObservableCollection<SourceFolderModel> _folders = new();
     public MainWindow()
     {
         InitializeComponent();
-
+        FoldersList.ItemsSource = _folders;
+        ProjectTree.ItemsSource = _rootNodes;
         LoadSettings();
         UpdateRemoveButtonState();
         RebuildTree();
@@ -35,16 +41,22 @@ public partial class MainWindow : Window
     private void LoadSettings()
     {
         _settings = _settingsService.Load();
-
-        FoldersList.Items.Clear();
+        _folders.Clear();
 
         foreach (var folder in _settings.LastFolders)
         {
-            FoldersList.Items.Add(new SourceFolderModel
+            var model = new SourceFolderModel
             {
                 Path = folder,
                 IsSelected = false
-            });
+            };
+
+            model.PropertyChanged += (_, _) =>
+            {
+                UpdateRemoveButtonState();
+            };
+
+            _folders.Add(model);
         }
 
         OutputBox.Text = _settings.LastOutputPath ?? string.Empty;
@@ -55,6 +67,8 @@ public partial class MainWindow : Window
         TxtCheck.IsChecked = _settings.Txt;
 
         TreeCheck.IsChecked = _settings.IncludeTree;
+        OnlyCheckedTreeRadio.IsChecked = _settings.OnlyCheckedTree;
+        FullTreeRadio.IsChecked = !_settings.OnlyCheckedTree;
 
         foreach (ComboBoxItem item in FormatBox.Items)
         {
@@ -66,23 +80,23 @@ public partial class MainWindow : Window
         }
 
         UpdateRemoveButtonState();
+
     }
 
     private void SaveSettings()
     {
-         _settings.LastFolders =
-           FoldersList.Items
-            .Cast<SourceFolderModel>()
-            .Select(x => x.Path)
-            .ToList();
+        _settings.LastFolders =
+   _folders
+       .Select(x => x.Path)
+       .ToList();
 
         _settings.LastOutputPath = OutputBox.Text;
 
         _settings.Cs = CsCheck.IsChecked == true;
         _settings.Json = JsonCheck.IsChecked == true;
         _settings.Md = MdCheck.IsChecked == true;
-        _settings.Txt = TxtCheck.IsChecked == true;
-
+        _settings.Txt = TxtCheck.IsChecked == true; 
+        _settings.OnlyCheckedTree = OnlyCheckedTreeRadio.IsChecked == true;
         _settings.IncludeTree = TreeCheck.IsChecked == true;
 
         _settings.Format =
@@ -103,14 +117,21 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(path))
             return;
 
-        if (FoldersList.Items.Cast<SourceFolderModel>().Any(x => x.Path == path))
+        if (_folders.Any(x => x.Path == path))
             return;
 
-        FoldersList.Items.Add(new SourceFolderModel
+        var model = new SourceFolderModel
         {
             Path = path,
             IsSelected = false
-        });
+        };
+
+        model.PropertyChanged += (_, _) =>
+        {
+            UpdateRemoveButtonState();
+        };
+
+        _folders.Add(model);
 
         Log($"Folder added: {path}");
 
@@ -118,24 +139,26 @@ public partial class MainWindow : Window
         SaveSettings();
     }
 
-    private void RemoveFolder_Click(object sender, RoutedEventArgs e)
+    private void RemoveFolder_Click(
+    object sender,
+    RoutedEventArgs e)
     {
-        var toRemove = FoldersList.Items
-            .Cast<SourceFolderModel>()
+        var selected =
+            _folders
             .Where(x => x.IsSelected)
             .ToList();
 
-        if (!toRemove.Any())
-            return;
-
-        foreach (var item in toRemove)
+        foreach (var item in selected)
         {
-            FoldersList.Items.Remove(item);
+            _folders.Remove(item);
+
             Log($"Folder removed: {item.Path}");
         }
 
         RebuildTree();
+
         SaveSettings();
+
         UpdateRemoveButtonState();
     }
 
@@ -166,55 +189,77 @@ public partial class MainWindow : Window
 
     private void Build_Click(object sender, RoutedEventArgs e)
     {
-        var folders =
-            NormalizeFolders(
-                FoldersList.Items
-                    .Cast<SourceFolderModel>()
-                    .Where(x => x.IsSelected)
-                    .Select(x => x.Path)
-                    .ToList());
 
-        var extensions = GetSelectedExtensions();
+        var extensions =
+            GetSelectedExtensions();
 
-        var scanner = new FileScanner();
 
-        var seenFiles = new HashSet<string>();
 
-        var rawFiles = scanner.Scan(folders, extensions);
+        var files =
+            _filesProvider.GetFiles(
+                _rootNodes,
+                extensions);
 
-        var filteredRawFiles = rawFiles
-            .Where(f =>
-                ProjectTree.Items
-                    .Cast<TreeViewItem>()
-                    .Any(root => IsNodeSelected(root, f.FullPath)))
-            .ToList();
 
-        var files = new List<ProjectFile>();
 
-        foreach (var file in filteredRawFiles)
+        string tree = string.Empty;
+
+
+
+        if (TreeCheck.IsChecked == true)
         {
-            var fullPath = Path.GetFullPath(file.FullPath);
 
-            if (seenFiles.Contains(fullPath))
-                continue;
+            if (OnlyCheckedTreeRadio.IsChecked == true)
+            {
 
-            seenFiles.Add(fullPath);
-            files.Add(file);
+                var exporter =
+                    new ProjectTreeExporterFromNodes();
+
+
+                tree = string.Join(
+                    Environment.NewLine,
+                    _rootNodes.Select(exporter.BuildTree));
+
+            }
+            else
+            {
+
+                var exporter =
+                    new ProjectTreeExporter();
+
+
+                tree = string.Join(
+                    Environment.NewLine,
+                    _folders.Select(x => x.Path)
+                            .Select(exporter.BuildTree));
+
+            }
+
         }
 
-        var treeExporter = new ProjectTreeExporter();
 
-        var tree = string.Join(
-            Environment.NewLine,
-            folders.Select(treeExporter.BuildTree));
 
-        var exporter = new MarkdownExporter();
+        var markdownExporter =
+            new MarkdownExporter();
 
-        var markdown = exporter.Build(files, tree);
 
-        File.WriteAllText(OutputBox.Text, markdown);
 
-        Log($"Exported {files.Count} files");
+        var markdown =
+            markdownExporter.Build(
+                files,
+                tree);
+
+
+
+        File.WriteAllText(
+            OutputBox.Text,
+            markdown);
+
+
+
+        Log(
+            $"Exported {files.Count} files");
+
     }
 
     // -------------------------
@@ -245,15 +290,24 @@ public partial class MainWindow : Window
 
             var normalized = Path.GetFullPath(path);
 
-            if (FoldersList.Items.Cast<SourceFolderModel>()
-                .Any(x => Path.GetFullPath(x.Path) == normalized))
-                return;
+            if (_folders.Any(x =>
+    Path.GetFullPath(x.Path) == normalized))
+            {
+                continue;
+            }
 
-            FoldersList.Items.Add(new SourceFolderModel
+            var model = new SourceFolderModel
             {
                 Path = path,
                 IsSelected = false
-            });
+            };
+
+            model.PropertyChanged += (_, _) =>
+            {
+                UpdateRemoveButtonState();
+            };
+
+            _folders.Add(model);
 
             Log($"Folder dropped: {path}");
         }
@@ -261,37 +315,16 @@ public partial class MainWindow : Window
         RebuildTree();
         SaveSettings();
     }
-    private bool IsNodeSelected(ItemsControl node, string filePath)
-    {
-        foreach (var item in node.Items)
-        {
-            if (item is TreeViewItem tvi)
-            {
-                if (tvi.Header is CheckBox cb)
-                {
-                    if (cb.IsChecked == true &&
-                        filePath.Contains(cb.Content.ToString()))
-                    {
-                        return true;
-                    }
-                }
 
-                if (IsNodeSelected(tvi, filePath))
-                    return true;
-            }
-        }
-
-        return false;
-    }
     // -------------------------
     // TREE
     // -------------------------
 
     private void RebuildTree()
     {
-        ProjectTree.Items.Clear();
+        _rootNodes.Clear();
 
-        foreach (var folder in FoldersList.Items.Cast<SourceFolderModel>().Select(x => x.Path))
+        foreach (var folder in _folders.Select(x => x.Path))
         {
             if (!Directory.Exists(folder))
                 continue;
@@ -300,7 +333,7 @@ public partial class MainWindow : Window
             {
                 var rootNode = _treeBuilder.Build(folder);
 
-                ProjectTree.Items.Add(CreateTreeItem(rootNode));
+                _rootNodes.Add(rootNode);
             }
             catch (Exception ex)
             {
@@ -311,59 +344,10 @@ public partial class MainWindow : Window
     private void UpdateRemoveButtonState()
     {
         RemoveFolderButton.IsEnabled =
-            FoldersList.Items
-                .Cast<SourceFolderModel>()
-                .Any(x => x.IsSelected);
+    _folders.Any(x => x.IsSelected);
     }
-    private TreeViewItem CreateTreeItem(TreeNodeModel node)
-    {
-        var check = new CheckBox
-        {
-            Content = node.Name,
-            IsChecked = true
-        };
-
-        check.Checked += TreeCheckBoxChanged;
-        check.Unchecked += TreeCheckBoxChanged;
-
-        var item = new TreeViewItem
-        {
-            Header = check
-        };
-
-        foreach (var child in node.Children)
-        {
-            item.Items.Add(CreateTreeItem(child));
-        }
-
-        return item;
-
-    }
-    private void TreeCheckBoxChanged(object sender, RoutedEventArgs e)
-    {
-        if (sender is not CheckBox checkBox)
-            return;
-
-        if (checkBox.Parent is not TreeViewItem parentItem)
-            return;
-
-        SetChildrenChecked(parentItem, checkBox.IsChecked == true);
-    }
-    private void SetChildrenChecked(TreeViewItem parent, bool isChecked)
-    {
-        foreach (var child in parent.Items)
-        {
-            if (child is not TreeViewItem item)
-                continue;
-
-            if (item.Header is CheckBox cb)
-            {
-                cb.IsChecked = isChecked;
-            }
-
-            SetChildrenChecked(item, isChecked);
-        }
-    }
+    
+    
     // -------------------------
     // UTILS
     // -------------------------
@@ -411,10 +395,6 @@ public partial class MainWindow : Window
 
         return result;
     }
-    private void FolderSelectionChanged(object sender, RoutedEventArgs e)
-    {
-        UpdateRemoveButtonState();
-    }
     private void Log(string message)
     {
         LogBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
@@ -426,4 +406,5 @@ public partial class MainWindow : Window
         SaveSettings();
         base.OnClosed(e);
     }
+
 }

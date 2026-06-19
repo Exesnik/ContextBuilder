@@ -1,12 +1,13 @@
 ﻿using System.ComponentModel;
+using System.Runtime.CompilerServices;
 
 namespace ContextBuilder.Models;
 
 public class SourceFolderModel : INotifyPropertyChanged
 {
-    public string Path { get; set; }
-
     private bool _isSelected;
+
+    public string Path { get; set; } = string.Empty;
 
     public bool IsSelected
     {
@@ -14,9 +15,17 @@ public class SourceFolderModel : INotifyPropertyChanged
         set
         {
             _isSelected = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
+            OnPropertyChanged();
         }
     }
 
-    public event PropertyChangedEventHandler PropertyChanged;
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged(
+        [CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(
+            this,
+            new PropertyChangedEventArgs(propertyName));
+    }
 }

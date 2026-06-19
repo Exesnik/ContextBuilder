@@ -1,37 +1,80 @@
 ﻿using ContextBuilder.Models;
 using System.IO;
 
-namespace ContextBuilder.Services;
+
+namespace ContextBuilder.Core;
+
 
 public class ProjectTreeBuilder
 {
-    public TreeNodeModel Build(string rootPath)
-    {
-        var root = new DirectoryInfo(rootPath);
 
-        return CreateDirectoryNode(root);
-    }
-
-    private TreeNodeModel CreateDirectoryNode(DirectoryInfo dir)
+    public TreeNodeModel Build(string path)
     {
-        var node = new TreeNodeModel
+        var root = new TreeNodeModel
         {
-            Name = dir.Name
+            Name = Path.GetFileName(path),
+            FullPath = path,
+            IsFolder = true
         };
 
-        foreach (var subDir in dir.GetDirectories())
-        {
-            node.Children.Add(CreateDirectoryNode(subDir));
-        }
 
-        foreach (var file in dir.GetFiles())
-        {
-            node.Children.Add(new TreeNodeModel
-            {
-                Name = file.Name
-            });
-        }
+        BuildChildren(root);
 
-        return node;
+
+        return root;
     }
+
+
+
+    private void BuildChildren(TreeNodeModel node)
+    {
+
+        try
+        {
+
+            foreach (var directory in Directory.GetDirectories(node.FullPath))
+            {
+
+                var child = new TreeNodeModel
+                {
+                    Name = Path.GetFileName(directory),
+                    FullPath = directory,
+                    IsFolder = true,
+                    Parent = node
+                };
+
+
+                node.Children.Add(child);
+
+
+                BuildChildren(child);
+
+            }
+
+
+
+            foreach (var file in Directory.GetFiles(node.FullPath))
+            {
+
+                var child = new TreeNodeModel
+                {
+                    Name = Path.GetFileName(file),
+                    FullPath = file,
+                    IsFolder = false,
+                    Parent = node
+                };
+
+
+                node.Children.Add(child);
+
+            }
+
+        }
+        catch
+        {
+
+        }
+
+    }
+
 }

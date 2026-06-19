@@ -1,8 +1,61 @@
-﻿namespace ContextBuilder.Models;
+﻿using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 
-public class TreeNodeModel
+namespace ContextBuilder.Models;
+
+public class TreeNodeModel : INotifyPropertyChanged
 {
-    public string Name { get; set; }
-    public bool IsSelected { get; set; } = true;
-    public List<TreeNodeModel> Children { get; set; } = new();
+    private bool _isChecked = true;
+
+
+    public string Name { get; set; } = string.Empty;
+
+    public string FullPath { get; set; } = string.Empty;
+
+    public bool IsFolder { get; set; }
+
+
+    public TreeNodeModel? Parent { get; set; }
+
+
+    public ObservableCollection<TreeNodeModel> Children { get; }
+        = new();
+
+
+    public bool IsChecked
+    {
+        get => _isChecked;
+
+        set
+        {
+            if (_isChecked == value)
+                return;
+
+
+            _isChecked = value;
+
+            OnPropertyChanged();
+
+
+            foreach (var child in Children)
+            {
+                child.IsChecked = value;
+            }
+        }
+    }
+
+
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+
+
+    private void OnPropertyChanged(
+        [CallerMemberName] string? name = null)
+    {
+        PropertyChanged?.Invoke(
+            this,
+            new PropertyChangedEventArgs(name));
+    }
 }
